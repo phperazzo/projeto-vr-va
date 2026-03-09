@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>CRUD VR A-Frame</title>
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+
+  <script>
+    const STORAGE_KEY = "vrCrudObjects";
+
+    const COLORS = ["red", "blue", "green", "yellow", "purple", "orange", "white"];
+    const TYPES = ["box", "sphere", "cylinder"];
+
+    const DB = {
+      load() {
+        try {
+          return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+        } catch (e) {
+          return [];
+        }
+      },
+
+      save(data) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        window.dispatchEvent(new CustomEvent("crud-updated"));
+      },
+
+      create(obj) {
+        const data = this.load();
+        data.push(obj);
+        this.save(data);
+      },
+
+      update(id, changes) {
+        const data = this.load().map(o => o.id === id ? { ...o, ...changes } : o);
+        this.save(data);
+      },
+
+      delete(id) {
+        const data = this.load().filter(o => o.id !== id);
+        this.save(data);
+      }
+    };
+
+    function generateId() {
+      return "obj_" + Date.now() + "_" + Math.floor(Math.random() * 10000);
+    }
+
+    function getNextColor(color) {
+      const i = COLORS.indexOf(color);
+      return COLORS[(i + 1) % COLORS.length];
+    }
+
+    function getNextType() {
+      let i = parseInt(localStorage.getItem("vrNextTypeIndex") || 0, 10);
+      const type = TYPES[i];
+      i = (i + 1) % TYPES.length;
+      localStorage.setItem("vrNextTypeIndex", i);
+      return type;
+    }
+
+    AFRAME.registerComponent("gaze-action", {
+      schema: {
+        action: { type: "string" },
+        targetId: { type: "string", default: "" }
+      },
+
+      init: function () {
+        this.defaultColor = this.el.getAttribute("color") || "#333";
+
+        this.el.addEventListener("mouseenter", () => {
+          this.el.setAttribute("color", "#00ccff");
+        });
+
+        this.el.addEventListener("mouseleave", () => {
+          this.el.setAttribute("color", this.defaultColor);
+        });
+
+        this.el.addEventListener("click", () => {
+          const appEntity = document.querySelector("#app");
+          if (!appEntity || !appEntity.components["vr-crud"]) return;
+
+          const app = appEntity.components["vr-crud"];
+          const action = this.data.action;
+          const id = this.data.targetId;
+
+          if (action === "create") app.createObject();
+          if (action === "edit") app.editSelectedObject();
+          if (action === "delete") app.deleteSelectedObject();
+          if (action === "select") app.selectObject(id);
+        });
+      }
+    });
+
+    AFRAME.registerComponent("vr-crud", {
+      init: function () {
+        this.selectedId = null;
+        this.sceneObjects = document.querySelector("#sceneObjects");
+        this.objectListPanel = document.querySelector("#objectListPanel");
+        this.infoText = document.querySelector("#infoText");
+
+        this.render = this.render.bind(this);
+        window.addEventListener("crud-updated", this.render);
+
+        this.migrateObjectLayout();
+        this.render();
+      },
+
+      getObjects() {
+        return DB.load();
+      },
+
+      migrateObjectLayout() {
+        const objects = this.getObjects();
+        const needsMigration = objects.some(o => !o.position || o.position.x > -3);
+
+        if (!needsMigration) return;
+
+        const migrated = objects.map((o, i) => ({
+          ...o,
+          position: {
+            x: -3,
+            y: 1 + (i % 3) * 1.2,
+            z: 0.5 + Math.floor(i / 3) * 1.5
+          }
+        }));
+
+        DB.save(migrated);
+      },
+
+      setInfo(msg) {
+        this.infoText.setAttribute("value", msg);
+      },
+
+      createObject() {
+        const objects = this.getObjects();
+
+        const obj = {
+          id: generateId(),
+          type: getNextType(),
+          color: COLORS[objects.length % COLORS.length],
+          position: {
+            x: -3,
+            y: 1 + (objects.length % 3) * 1.2,
+            z: 0.5 + Math.floor(objects.length / 3) * 1.5
+          }
+        };
+
+        DB.create(obj);
+        this.selectedId = obj.id;
+        this.setInfo("Objeto criado: " + obj.type);
+        this.render();
+      },
+
+      editSelectedObject() {
+        if (!this.selectedId) {
+          this.setInfo("Selecione um objeto primeiro");
+          return;
+        }
+
+        const obj = this.getObjects().find(o => o.id === this.selectedId);
+        if (!obj) {
+          this.setInfo("Objeto selecionado não existe mais");
+          return;
+        }
+
+        const newColor = getNextColor(obj.color);
+        DB.update(obj.id, { color: newColor });
+        this.setInfo("Cor alterada para " + newColor);
+      },
+
+      deleteSelectedObject() {
+        if (!this.selectedId) {
+          this.setInfo("Selecione um objeto primeiro");
+          return;
+        }
+
+        DB.delete(this.selectedId);
+        this.selectedId = null;
+        this.setInfo("Objeto deletado");
+      },
+
+      selectObject(id) {
+        this.selectedId = id;
+
+        const obj = this.getObjects().find(o => o.id === id);
+        if (obj) {
+          this.setInfo("Selecionado: " + obj.type + " (" + obj.color + ")");
+        }
+
+        this.render();
+      },
+
+      renderSceneObjects() {
+        this.sceneObjects.innerHTML = "";
+        const objects = this.getObjects();
+
+        objects.forEach(obj => {
+          const e = document.createElement("a-entity");
+          e.setAttribute("position", `${obj.position.x} ${obj.position.y} ${obj.position.z}`);
+          e.setAttribute("geometry", this.getGeometry(obj.type));
+          e.setAttribute("material", `color:${obj.color}`);
+
+          if (obj.id === this.selectedId) {
+            e.setAttribute(
+              "animation",
+              "property: rotation; to: 0 360 0; loop:true; dur:3000; easing:linear"
+            );
+
+            const ring = document.createElement("a-ring");
+            ring.setAttribute("position", "0 -0.75 0");
+            ring.setAttribute("rotation", "-90 0 0");
+            ring.setAttribute("radius-inner", "0.7");
+            ring.setAttribute("radius-outer", "0.9");
+            ring.setAttribute("color", "#ffff00");
+            e.appendChild(ring);
+          }
+
+          this.sceneObjects.appendChild(e);
+        });
+      },
+
+      renderObjectList() {
+        this.objectListPanel.innerHTML = "";
+
+        const bg = document.createElement("a-plane");
+        bg.setAttribute("width", "4");
+        bg.setAttribute("height", "3.2");
+        bg.setAttribute("color", "#111");
+        bg.setAttribute("opacity", "0.92");
+        this.objectListPanel.appendChild(bg);
+
+        const title = document.createElement("a-text");
+        title.setAttribute("value", "OBJETOS");
+        title.setAttribute("align", "center");
+        title.setAttribute("color", "#00ffcc");
+        title.setAttribute("width", "4");
+        title.setAttribute("position", "0 1.4 0.02");
+        this.objectListPanel.appendChild(title);
+
+        const objects = this.getObjects();
+
+        if (objects.length === 0) {
+          const txt = document.createElement("a-text");
+          txt.setAttribute("value", "Nenhum objeto salvo");
+          txt.setAttribute("align", "center");
+          txt.setAttribute("width", "3");
+          txt.setAttribute("position", "0 0 0.02");
+          this.objectListPanel.appendChild(txt);
+          return;
+        }
+
+        objects.slice(0, 8).forEach((obj, i) => {
+          const y = 1.0 - i * 0.32;
+
+          const btn = document.createElement("a-plane");
+          btn.setAttribute("class", "clickable");
+          btn.setAttribute("width", "3.3");
+          btn.setAttribute("height", "0.24");
+          btn.setAttribute("position", `0 ${y} 0.02`);
+          btn.setAttribute("color", obj.id === this.selectedId ? "#ffee58" : "#333");
+          btn.setAttribute("gaze-action", `action: select; targetId: ${obj.id}`);
+          this.objectListPanel.appendChild(btn);
+
+          const txt = document.createElement("a-text");
+          txt.setAttribute("value", `${obj.type} - ${obj.color}`);
+          txt.setAttribute("align", "center");
+          txt.setAttribute("width", "3.4");
+          txt.setAttribute("position", `0 ${y - 0.02} 0.03`);
+          this.objectListPanel.appendChild(txt);
+        });
+      },
+
+      render() {
+        const objects = this.getObjects();
+
+        if (this.selectedId && !objects.some(o => o.id === this.selectedId)) {
+          this.selectedId = null;
+        }
+
+        this.renderSceneObjects();
+        this.renderObjectList();
+      },
+
+      getGeometry(type) {
+        if (type === "box") {
+          return "primitive: box; width:1; height:1; depth:1";
+        }
+
+        if (type === "sphere") {
+          return "primitive: sphere; radius:0.6";
+        }
+
+        if (type === "cylinder") {
+          return "primitive: cylinder; radius:0.5; height:1.2";
+        }
+
+        return "primitive: box";
+      }
+    });
+  </script>
+</head>
+
+<body>
+  <a-scene background="color:#cfefff">
+
+    <a-sky color="#87CEEB"></a-sky>
+
+    <a-light type="ambient" intensity="0.8"></a-light>
+    <a-light type="directional" intensity="0.9" position="2 4 2"></a-light>
+
+    <a-plane rotation="-90 0 0" width="40" height="40" color="#4c8c4a"></a-plane>
+
+    <!-- Objetos no centro -->
+    <a-entity id="sceneObjects"></a-entity>
+
+    <!-- controlador -->
+    <a-entity id="app" vr-crud></a-entity>
+
+    <!-- MENU CRUD NA FRENTE -->
+    <a-entity id="mainPanel" position="0 1.8 -2.5" rotation="0 0 0">
+      <a-plane width="5" height="1.5" color="#111" opacity="0.92"></a-plane>
+
+      <a-text
+        value="CRUD VR"
+        align="center"
+        color="#00ffcc"
+        width="4"
+        position="0 0.45 0.02">
+      </a-text>
+
+      <a-text
+        id="infoText"
+        value="Olhe 1.5s para ativar"
+        align="center"
+        width="4.2"
+        position="0 0.15 0.02">
+      </a-text>
+
+      <a-plane
+        class="clickable"
+        position="-1.5 -0.35 0.02"
+        width="1"
+        height="0.3"
+        color="#2e7d32"
+        gaze-action="action:create">
+      </a-plane>
+      <a-text
+        value="Criar"
+        align="center"
+        width="2"
+        position="-1.5 -0.38 0.03">
+      </a-text>
+
+      <a-plane
+        class="clickable"
+        position="0 -0.35 0.02"
+        width="1"
+        height="0.3"
+        color="#ef6c00"
+        gaze-action="action:edit">
+      </a-plane>
+      <a-text
+        value="Editar cor"
+        align="center"
+        width="2.2"
+        position="0 -0.38 0.03">
+      </a-text>
+
+      <a-plane
+        class="clickable"
+        position="1.5 -0.35 0.02"
+        width="1"
+        height="0.3"
+        color="#c62828"
+        gaze-action="action:delete">
+      </a-plane>
+      <a-text
+        value="Deletar"
+        align="center"
+        width="2"
+        position="1.5 -0.38 0.03">
+      </a-text>
+    </a-entity>
+
+    <!-- LISTA À DIREITA (literal 90°) -->
+    <a-entity
+      id="objectListPanel"
+      position="3 1.8 0"
+      rotation="0 -90 0">
+    </a-entity>
+
+    <!-- câmera fixa no centro -->
+    <a-entity position="0 1.6 0">
+      <a-camera look-controls="enabled:true" wasd-controls="enabled:false">
+        <a-cursor
+          fuse="true"
+          fuse-timeout="1500"
+          raycaster="objects:.clickable"
+          color="#00ffcc"
+          geometry="primitive:ring; radiusInner:0.012; radiusOuter:0.02">
+        </a-cursor>
+      </a-camera>
+    </a-entity>
+
+  </a-scene>
+</body>
+</html>
