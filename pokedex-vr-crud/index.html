@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Pokedex VR CRUD</title>
+	<script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+</head>
+<body>
+	<a-scene background="color: #111827">
+		<a-entity id="cameraRig" position="0 0 0">
+			<a-camera position="0 1.6 0">
+				<a-cursor
+					fuse="true"
+					fuse-timeout="1500"
+					raycaster="objects:.clickable"
+					color="#f59e0b"
+				></a-cursor>
+			</a-camera>
+		</a-entity>
+
+		<a-plane position="0 1.45 -2.8" width="6.8" height="3.8" color="#0b1220"></a-plane>
+
+		<a-entity id="crudMenu" position="0 2.62 -2.25">
+			<a-plane width="2.4" height="0.55" color="#1f2937"></a-plane>
+			<a-text value="MENU CRUD" align="center" color="#f9fafb" position="0 0.12 0.01" width="3"></a-text>
+
+			<a-plane
+				class="clickable"
+				ui-action="action: add"
+				position="-0.75 -0.08 0.01"
+				width="0.62"
+				height="0.25"
+				color="#10b981"
+			></a-plane>
+			<a-text value="ADD" align="center" color="#062211" position="-0.75 -0.11 0.02" width="2.3"></a-text>
+
+			<a-plane
+				class="clickable"
+				ui-action="action: toggle-shiny"
+				position="0 -0.08 0.01"
+				width="0.95"
+				height="0.25"
+				color="#eab308"
+			></a-plane>
+			<a-text value="TOGGLE SHINY" align="center" color="#3d2c00" position="0 -0.11 0.02" width="2"></a-text>
+
+			<a-plane
+				class="clickable"
+				ui-action="action: delete"
+				position="0.78 -0.08 0.01"
+				width="0.62"
+				height="0.25"
+				color="#ef4444"
+			></a-plane>
+			<a-text value="DELETE" align="center" color="#3f0404" position="0.78 -0.11 0.02" width="1.9"></a-text>
+		</a-entity>
+
+		<a-entity id="keyboardPanel" position="0 1.45 -2.2">
+			<a-plane width="2.8" height="1.65" color="#111827"></a-plane>
+			<a-text value="TECLADO VR" align="center" color="#f8fafc" position="0 0.72 0.01" width="2.2"></a-text>
+
+			<a-plane id="pokemonInputDisplayBg" position="0 0.5 0.01" width="2.4" height="0.26" color="#1f2937"></a-plane>
+			<a-text id="pokemonInputDisplay" value="_" align="center" color="#34d399" position="0 0.46 0.02" width="2.4"></a-text>
+
+			<a-entity id="keyboardKeys" position="0 0.1 0.02"></a-entity>
+
+			<a-plane
+				class="clickable"
+				keyboard-key="value: BACKSPACE"
+				position="-0.8 -0.58 0.02"
+				width="0.72"
+				height="0.2"
+				color="#374151"
+			></a-plane>
+			<a-text value="BACKSPACE" align="center" color="#f3f4f6" position="-0.8 -0.615 0.03" width="1.5"></a-text>
+
+			<a-plane
+				class="clickable"
+				keyboard-key="value: CLEAR"
+				position="0 -0.58 0.02"
+				width="0.52"
+				height="0.2"
+				color="#4b5563"
+			></a-plane>
+			<a-text value="CLEAR" align="center" color="#f3f4f6" position="0 -0.615 0.03" width="1.8"></a-text>
+
+			<a-plane
+				class="clickable"
+				ui-action="action: add"
+				position="0.8 -0.58 0.02"
+				width="0.72"
+				height="0.2"
+				color="#22c55e"
+			></a-plane>
+			<a-text value="ADD POKEMON" align="center" color="#05270f" position="0.8 -0.615 0.03" width="1.35"></a-text>
+		</a-entity>
+
+		<a-entity id="previewPanel" position="-2.35 1.45 -2.35">
+			<a-plane width="1.75" height="2.6" color="#1f2937"></a-plane>
+			<a-text value="PREVIEW" align="center" color="#f9fafb" position="0 1.15 0.01" width="2.2"></a-text>
+			<a-image id="pokemonPreviewImage" position="0 0.15 0.02" width="1.35" height="1.35" visible="false"></a-image>
+			<a-text id="previewName" value="Nenhum selecionado" align="center" color="#93c5fd" position="0 -0.95 0.01" width="1.8"></a-text>
+			<a-text id="previewMode" value="Modo: normal" align="center" color="#fde68a" position="0 -1.15 0.01" width="1.5"></a-text>
+		</a-entity>
+
+		<a-entity id="listPanel" position="2.35 1.45 -2.35">
+			<a-plane width="1.75" height="2.6" color="#1f2937"></a-plane>
+			<a-text value="POKEMON" align="center" color="#f9fafb" position="0 1.15 0.01" width="2.2"></a-text>
+			<a-entity id="pokemonList" position="0 0.82 0.02"></a-entity>
+		</a-entity>
+
+		<a-entity id="statusPanel" position="0 0.42 -2.18">
+			<a-plane width="3.5" height="0.32" color="#111827"></a-plane>
+			<a-text id="statusText" value="Pronto para adicionar Pokemon" align="center" color="#e5e7eb" position="0 -0.05 0.01" width="2.8"></a-text>
+		</a-entity>
+
+		<script>
+			(function () {
+				var STORAGE_KEY = 'vr_pokedex';
+				var state = {
+					pokemon: [],
+					selectedId: null,
+					input: '',
+					cache: {}
+				};
+
+				function makeId() {
+					return 'poke_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+				}
+
+				function getById(id) {
+					return document.getElementById(id);
+				}
+
+				function setStatus(message, isError) {
+					var statusText = getById('statusText');
+					statusText.setAttribute('value', message);
+					statusText.setAttribute('color', isError ? '#fca5a5' : '#bbf7d0');
+				}
+
+				function persist() {
+					localStorage.setItem(STORAGE_KEY, JSON.stringify(state.pokemon));
+				}
+
+				function load() {
+					var raw = localStorage.getItem(STORAGE_KEY);
+					if (!raw) {
+						state.pokemon = [];
+						return;
+					}
+
+					try {
+						var parsed = JSON.parse(raw);
+						if (Array.isArray(parsed)) {
+							state.pokemon = parsed
+								.filter(function (item) {
+									return item && item.id && item.name;
+								})
+								.map(function (item) {
+									return {
+										id: String(item.id),
+										name: String(item.name).toLowerCase(),
+										shiny: Boolean(item.shiny)
+									};
+								});
+						}
+					} catch (err) {
+						state.pokemon = [];
+						setStatus('Erro ao ler localStorage. Lista resetada.', true);
+					}
+				}
+
+				function getSelectedPokemon() {
+					return state.pokemon.find(function (p) {
+						return p.id === state.selectedId;
+					}) || null;
+				}
+
+				function updateInputDisplay() {
+					var display = getById('pokemonInputDisplay');
+					display.setAttribute('value', state.input ? state.input : '_');
+				}
+
+				function appendInput(char) {
+					if (state.input.length >= 12) {
+						setStatus('Limite de 12 caracteres no nome.', true);
+						return;
+					}
+					state.input += char.toLowerCase();
+					updateInputDisplay();
+				}
+
+				function backspaceInput() {
+					if (!state.input.length) return;
+					state.input = state.input.slice(0, -1);
+					updateInputDisplay();
+				}
+
+				function clearInput() {
+					state.input = '';
+					updateInputDisplay();
+				}
+
+				function renderList() {
+					var listRoot = getById('pokemonList');
+					while (listRoot.firstChild) {
+						listRoot.removeChild(listRoot.firstChild);
+					}
+
+					if (state.pokemon.length === 0) {
+						var empty = document.createElement('a-text');
+						empty.setAttribute('value', 'Lista vazia');
+						empty.setAttribute('align', 'center');
+						empty.setAttribute('color', '#9ca3af');
+						empty.setAttribute('position', '0 0 0.01');
+						empty.setAttribute('width', '1.6');
+						listRoot.appendChild(empty);
+						return;
+					}
+
+					state.pokemon.slice(0, 8).forEach(function (poke, index) {
+						var y = -index * 0.23;
+
+						var row = document.createElement('a-plane');
+						row.setAttribute('class', 'clickable');
+						row.setAttribute('pokemon-item', 'id: ' + poke.id);
+						row.setAttribute('position', '0 ' + y + ' 0');
+						row.setAttribute('width', '1.45');
+						row.setAttribute('height', '0.18');
+						row.setAttribute('color', state.selectedId === poke.id ? '#2563eb' : '#374151');
+
+						var label = document.createElement('a-text');
+						label.setAttribute('value', poke.name);
+						label.setAttribute('align', 'center');
+						label.setAttribute('color', '#f9fafb');
+						label.setAttribute('position', '0 ' + (y - 0.035) + ' 0.01');
+						label.setAttribute('width', '1.8');
+
+						listRoot.appendChild(row);
+						listRoot.appendChild(label);
+					});
+				}
+
+				function spriteFromData(data, shiny) {
+					if (!data || !data.sprites || !data.sprites.other || !data.sprites.other['official-artwork']) {
+						return null;
+					}
+					var artwork = data.sprites.other['official-artwork'];
+					return shiny ? artwork.front_shiny : artwork.front_default;
+				}
+
+				function ensurePokemonData(name) {
+					if (state.cache[name]) {
+						return Promise.resolve(state.cache[name]);
+					}
+
+					return fetch('https://pokeapi.co/api/v2/pokemon/' + encodeURIComponent(name))
+						.then(function (res) {
+							if (!res.ok) {
+								throw new Error('Pokemon nao encontrado');
+							}
+							return res.json();
+						})
+						.then(function (data) {
+							state.cache[name] = data;
+							return data;
+						});
+				}
+
+				function updatePreview() {
+					var selected = getSelectedPokemon();
+					var previewImage = getById('pokemonPreviewImage');
+					var previewName = getById('previewName');
+					var previewMode = getById('previewMode');
+
+					if (!selected) {
+						previewImage.setAttribute('visible', false);
+						previewName.setAttribute('value', 'Nenhum selecionado');
+						previewMode.setAttribute('value', 'Modo: normal');
+						return;
+					}
+
+					previewName.setAttribute('value', selected.name);
+					previewMode.setAttribute('value', selected.shiny ? 'Modo: shiny' : 'Modo: normal');
+
+					ensurePokemonData(selected.name)
+						.then(function (data) {
+							var sprite = spriteFromData(data, selected.shiny);
+							if (!sprite) {
+								previewImage.setAttribute('visible', false);
+								setStatus('Sprite oficial nao disponivel para ' + selected.name, true);
+								return;
+							}
+
+							previewImage.setAttribute('src', sprite);
+							previewImage.setAttribute('visible', true);
+						})
+						.catch(function () {
+							previewImage.setAttribute('visible', false);
+							setStatus('Falha ao carregar preview de ' + selected.name, true);
+						});
+				}
+
+				function selectPokemon(id) {
+					state.selectedId = id;
+					renderList();
+					updatePreview();
+				}
+
+				function addPokemonFromInput() {
+					var name = state.input.trim().toLowerCase();
+
+					if (!name) {
+						setStatus('Digite o nome no teclado VR antes de adicionar.', true);
+						return;
+					}
+
+					if (state.pokemon.length >= 8) {
+						setStatus('Limite de 8 Pokemon na lista.', true);
+						return;
+					}
+
+					var alreadyExists = state.pokemon.some(function (p) {
+						return p.name === name;
+					});
+					if (alreadyExists) {
+						setStatus('Pokemon ja existe na lista.', true);
+						return;
+					}
+
+					setStatus('Buscando ' + name + ' na PokeAPI...', false);
+
+					fetch('https://pokeapi.co/api/v2/pokemon/' + encodeURIComponent(name))
+						.then(function (res) {
+							if (!res.ok) {
+								throw new Error('Pokemon nao encontrado');
+							}
+							return res.json();
+						})
+						.then(function (data) {
+							state.cache[name] = data;
+
+							var entry = {
+								id: makeId(),
+								name: name,
+								shiny: false
+							};
+							state.pokemon.push(entry);
+							persist();
+							clearInput();
+							selectPokemon(entry.id);
+							setStatus(name + ' adicionado com sucesso.', false);
+						})
+						.catch(function () {
+							setStatus('Pokemon nao encontrado: ' + name, true);
+						});
+				}
+
+				function toggleShiny() {
+					var selected = getSelectedPokemon();
+					if (!selected) {
+						setStatus('Selecione um Pokemon para alternar shiny.', true);
+						return;
+					}
+
+					selected.shiny = !selected.shiny;
+					persist();
+					renderList();
+					updatePreview();
+					setStatus(selected.name + (selected.shiny ? ' agora esta shiny.' : ' voltou ao normal.'), false);
+				}
+
+				function deleteSelected() {
+					var selected = getSelectedPokemon();
+					if (!selected) {
+						setStatus('Selecione um Pokemon para remover.', true);
+						return;
+					}
+
+					var removedName = selected.name;
+					state.pokemon = state.pokemon.filter(function (p) {
+						return p.id !== selected.id;
+					});
+					state.selectedId = state.pokemon.length ? state.pokemon[0].id : null;
+					persist();
+					renderList();
+					updatePreview();
+					setStatus(removedName + ' removido da Pokedex.', false);
+				}
+
+				AFRAME.registerComponent('keyboard-key', {
+					schema: {
+						value: { type: 'string' }
+					},
+					init: function () {
+						var value = this.data.value;
+						this.el.addEventListener('click', function () {
+							if (value === 'BACKSPACE') {
+								backspaceInput();
+								return;
+							}
+							if (value === 'CLEAR') {
+								clearInput();
+								return;
+							}
+							appendInput(value);
+						});
+					}
+				});
+
+				AFRAME.registerComponent('ui-action', {
+					schema: {
+						action: { type: 'string' }
+					},
+					init: function () {
+						var action = this.data.action;
+						this.el.addEventListener('click', function () {
+							if (action === 'add') {
+								addPokemonFromInput();
+							} else if (action === 'toggle-shiny') {
+								toggleShiny();
+							} else if (action === 'delete') {
+								deleteSelected();
+							}
+						});
+					}
+				});
+
+				AFRAME.registerComponent('pokemon-item', {
+					schema: {
+						id: { type: 'string' }
+					},
+					init: function () {
+						var id = this.data.id;
+						this.el.addEventListener('click', function () {
+							selectPokemon(id);
+						});
+					}
+				});
+
+				function buildKeyboard() {
+					var letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+					var keysRoot = getById('keyboardKeys');
+					var cols = 9;
+					var spacingX = 0.28;
+					var spacingY = 0.23;
+					var startX = -1.12;
+					var startY = 0.24;
+
+					for (var i = 0; i < letters.length; i += 1) {
+						var letter = letters[i];
+						var row = Math.floor(i / cols);
+						var col = i % cols;
+						var x = startX + col * spacingX;
+						var y = startY - row * spacingY;
+
+						var key = document.createElement('a-plane');
+						key.setAttribute('class', 'clickable');
+						key.setAttribute('keyboard-key', 'value: ' + letter);
+						key.setAttribute('position', x + ' ' + y + ' 0');
+						key.setAttribute('width', '0.22');
+						key.setAttribute('height', '0.18');
+						key.setAttribute('color', '#334155');
+
+						var text = document.createElement('a-text');
+						text.setAttribute('value', letter);
+						text.setAttribute('align', 'center');
+						text.setAttribute('color', '#f8fafc');
+						text.setAttribute('position', x + ' ' + (y - 0.03) + ' 0.01');
+						text.setAttribute('width', '2');
+
+						keysRoot.appendChild(key);
+						keysRoot.appendChild(text);
+					}
+				}
+
+				function init() {
+					buildKeyboard();
+					load();
+					updateInputDisplay();
+					renderList();
+
+					if (state.pokemon.length) {
+						state.selectedId = state.pokemon[0].id;
+					}
+
+					updatePreview();
+				}
+
+				window.addEventListener('load', init);
+			})();
+		</script>
+	</a-scene>
+</body>
+</html>
